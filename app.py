@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from recommend import get_similar_movies,recommend_user
+from recommend import get_similar_movies,recommend_user, record_watch_event
 import logging
 import time
 import faiss
+from pydantic import BaseModel
 
 logging.basicConfig(filename="app.log",level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -12,6 +13,27 @@ index = faiss.read_index(
 )
 
 app = FastAPI()
+
+class WatchEvent(BaseModel):
+
+    user_id: int
+
+    movie_id: int
+
+@app.post("/watch")
+def watch_movie(
+    event: WatchEvent
+):
+
+    record_watch_event(
+        event.user_id,
+        event.movie_id
+    )
+
+    return {
+        "status":
+        "success"
+    }
 
 @app.get("/recommend/{movie_id}")
 

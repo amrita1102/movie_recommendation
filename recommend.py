@@ -2,12 +2,16 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 import faiss
+import pickle
+from redis_client import redis_client
+from datetime import datetime
 
 movies = pd.read_csv("ml-latest-small\ml-latest-small\movies.csv")
 
-history = pd.read_csv(
-    "user_history.csv"
-)
+history = pd.read_csv("user_history.csv")
+
+EMBEDDING_TTL = 600
+RECOMMENDATION_TTL = 90
 
 history["timestamp"] = pd.to_datetime(
     history["timestamp"]
@@ -24,6 +28,60 @@ faiss.normalize_L2(
 index = faiss.read_index(
     "movie_index.faiss"
 )
+
+movie_to_idx = {
+    movie_id: idx
+    for idx, movie_id
+    in enumerate(
+        movies["movieId"]
+    )
+}
+def get_cached_embedding(user_id):
+
+    data = redis_client.get(
+        f"user:{user_id}"
+    )
+
+    if data is None:
+        return None
+
+    return pickle.loads(data)
+def cache_embedding(
+    user_id,
+    embedding
+):
+
+    redis_client.set(
+        f"user:{user_id}",
+        pickle.dumps(
+            embedding
+        ),
+        ex=EMBEDDING_TTL
+    )
+
+def get_cached_recommendations(
+    user_id
+):
+
+    data = redis_client.get(
+        f"recommendations:user:{user_id}"
+    )
+
+    if data is None:
+        return None
+
+    return pickle.loads(data)
+def cache_recommendations(
+    user_id,
+    recommendations
+):
+
+    redis_client.set(
+        f"recommendations:user:{user_id}",
+        pickle.dumps(
+            recommendations
+        )
+    )
 
 def build_user_embedding(
     user_id
@@ -98,25 +156,58 @@ def build_user_embedding(
     )
     print(f"Built embedding for user {user_id}")
     return user_embedding
-
+   
 def recommend_user(
     user_id,
     top_k=10
 ):
+    recommendations = (
+            get_cached_recommendations(
+                user_id
+            )
+        )
+
+    if recommendations is not None:
+
+        print(
+            f"REC CACHE HIT {user_id}"
+        )
+
+        return recommendations
+
+    print(
+        f"REC CACHE MISS {user_id}"
+    )
 
     user_embedding = (
-        build_user_embedding(
+        get_cached_embedding(
             user_id
         )
     )
 
     if user_embedding is None:
 
-        return {
-            "error":
-            "user not found"
-        }
+        print(
+            f"EMBEDDING MISS {user_id}"
+        )
 
+        user_embedding = (
+            build_user_embedding(
+                user_id
+            )
+        )
+
+        cache_embedding(
+            user_id,
+            user_embedding
+        )
+
+    else:
+
+        print(
+            f"EMBEDDING HIT {user_id}"
+        )
+    
     scores, ids = index.search(
         user_embedding,
         top_k * 3
@@ -171,6 +262,116 @@ def recommend_user(
             break
 
     return recommendations
+
+def record_watch_event(
+    user_id,
+    movie_id
+):
+
+    global history
+
+    new_row = pd.DataFrame(
+        [
+            {
+                "userId": user_id,
+                "movieId": movie_id,
+                "timestamp":
+                datetime.now()
+            }
+        ]
+    )
+
+    history = pd.concat(
+        [
+            history,
+            new_row
+        ],
+        ignore_index=True
+    )
+
+    history.to_csv(
+        "user_history.csv",
+        index=False
+    )
+
+    redis_client.delete(f"user:{user_id}")
+
+    redis_client.delete(f"recommendations:user:{user_id}")
+
+    print(
+        f"Cache invalidated for user {user_id}"
+    )
+
+# without cache
+# def recommend_user(user_id,top_k=10):
+
+#     user_embedding = (
+#         build_user_embedding(
+#             user_id
+#         )
+#     )
+
+#     if user_embedding is None:
+
+#         return {
+#             "error":
+#             "user not found"
+#         }
+
+#     scores, ids = index.search(
+#         user_embedding,
+#         top_k * 3
+#     )
+
+#     watched_movies = set(
+
+#         history[
+#             history["userId"]
+#             == user_id
+#         ]["movieId"]
+
+#     )
+
+#     recommendations = []
+
+#     for movie_id in ids[0]:
+
+#         if movie_id == -1:
+#             continue
+
+#         if movie_id in watched_movies:
+#             continue
+
+#         movie_row = movies[
+#             movies["movieId"]
+#             == movie_id
+#         ]
+
+#         if len(movie_row) == 0:
+#             continue
+
+#         recommendations.append(
+#             {
+#                 "movieId":
+#                 int(movie_id),
+
+#                 "title":
+#                 movie_row.iloc[0]["title"],
+
+#                 "genres":
+#                 movie_row.iloc[0]["genres"]
+#             }
+#         )
+
+#         if (
+#             len(
+#                 recommendations
+#             )
+#             >= top_k
+#         ):
+#             break
+
+#     return recommendations
 
 if __name__ == "__main__":
 
