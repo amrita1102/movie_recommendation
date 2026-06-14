@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-movies = pd.read_csv("ml-latest-small/ml-latest-small/movies.csv")
+movies = pd.read_csv("movies.csv")
 
 model = SentenceTransformer(
     "all-MiniLM-L6-v2"

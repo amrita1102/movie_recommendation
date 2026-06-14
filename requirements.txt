@@ -5,5 +5,4 @@ pandas
 redis
 faiss-cpu
 scikit-learn
-sentence-transformers
 pydantic

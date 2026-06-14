@@ -5,8 +5,10 @@ import faiss
 import pickle
 from redis_client import redis_client
 from datetime import datetime
+from logger import logger
+import time
 
-movies = pd.read_csv("ml-latest-small\ml-latest-small\movies.csv")
+movies = pd.read_csv("movies.csv")
 
 history = pd.read_csv("user_history.csv")
 
@@ -109,51 +111,29 @@ def build_user_embedding(
 
     n = len(user_data)
 
-    for rank, row in enumerate(
-        user_data.itertuples()
-    ):
+    for rank, row in enumerate(user_data.itertuples()):
 
         movie_id = row.movieId
 
         if movie_id not in movie_to_idx:
             continue
 
-        idx = movie_to_idx[
-            movie_id
-        ]
+        idx = movie_to_idx[movie_id]
 
-        embeddings_list.append(
-            embeddings[idx]
-        )
+        embeddings_list.append(embeddings[idx])
 
-        weight = (
-            n - rank
-        ) / n
+        weight = (n - rank) / n
 
-        weights.append(
-            weight
-        )
+        weights.append(weight)
 
-    if len(
-        embeddings_list
-    ) == 0:
+    if len(embeddings_list) == 0:
         return None
 
-    user_embedding = np.average(
-        embeddings_list,
-        axis=0,
-        weights=weights
-    )
+    user_embedding = np.average(embeddings_list, axis=0, weights=weights)
 
-    user_embedding = (
-        user_embedding
-        .reshape(1, -1)
-        .astype("float32")
-    )
+    user_embedding = (user_embedding.reshape(1, -1).astype("float32"))
 
-    faiss.normalize_L2(
-        user_embedding
-    )
+    faiss.normalize_L2(user_embedding)
     print(f"Built embedding for user {user_id}")
     return user_embedding
    
@@ -161,23 +141,22 @@ def recommend_user(
     user_id,
     top_k=10
 ):
+    start = time.time()
     recommendations = (
             get_cached_recommendations(
                 user_id
             )
         )
+    
 
     if recommendations is not None:
 
-        print(
-            f"REC CACHE HIT {user_id}"
-        )
+        logger.info(f"REC_CACHE_HIT user={user_id}")
 
         return recommendations
 
-    print(
-        f"REC CACHE MISS {user_id}"
-    )
+    logger.info(f"REC_CACHE_MISS user={user_id}")
+    
 
     user_embedding = (
         get_cached_embedding(
@@ -261,6 +240,14 @@ def recommend_user(
         ):
             break
 
+    latency = (
+    time.time() - start
+) * 1000
+    
+    logger.info(
+    f"LATENCY_MS={latency:.2f}"
+)
+
     return recommendations
 
 def record_watch_event(
@@ -280,7 +267,9 @@ def record_watch_event(
             }
         ]
     )
-
+    logger.info(
+    f"WATCH_EVENT user={user_id} movie={movie_id}"
+)
     history = pd.concat(
         [
             history,
