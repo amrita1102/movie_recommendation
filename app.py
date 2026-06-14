@@ -1,9 +1,10 @@
 from fastapi import FastAPI
-from recommend import get_similar_movies,recommend_user, record_watch_event
+from recommend import recommend_user, record_watch_event
 import logging
 import time
 import faiss
 from pydantic import BaseModel
+import redis_client
 
 logging.basicConfig(filename="app.log",level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -19,6 +20,20 @@ class WatchEvent(BaseModel):
     user_id: int
 
     movie_id: int
+@app.get("/health")
+def health():
+
+    return {
+        "status": "healthy"
+    }
+@app.get("/health/redis")
+def redis_health():
+
+    redis_client.ping()
+
+    return {
+        "redis":"up"
+    }
 
 @app.post("/watch")
 def watch_movie(

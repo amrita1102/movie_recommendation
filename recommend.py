@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.metrics.pairwise import cosine_similarity
 import faiss
 import pickle
 from redis_client import redis_client
@@ -418,17 +418,17 @@ def get_similar_movies(movie_id,top_k=10):
 
     return (movies.iloc[indices[0][1:]]["title"].tolist())
 
-def get_similar_movies(movie_id):
-    query_embedding = embeddings[movie_id]
+# def get_similar_movies(movie_id):
+#     query_embedding = embeddings[movie_id]
 
-    similarities = cosine_similarity(
-        [query_embedding],
-        embeddings
-    )[0]
+#     similarities = cosine_similarity(
+#         [query_embedding],
+#         embeddings
+#     )[0]
 
-    top_idx = similarities.argsort()[-11:-1][::-1]
+#     top_idx = similarities.argsort()[-11:-1][::-1]
 
-    return (movies.iloc[top_idx]["title"].tolist())
+#     return (movies.iloc[top_idx]["title"].tolist())
 
 # Example usage:
 # movie_id = 1  # The movie ID for which you want recommendations
