@@ -6,3 +6,7 @@ redis
 faiss-cpu
 scikit-learn
 pydantic
+prometheus-client
+pytest
+httpx
+pytest-cov

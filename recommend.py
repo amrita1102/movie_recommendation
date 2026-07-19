@@ -7,7 +7,15 @@ from redis_client import redis_client
 from datetime import datetime
 from logger import logger
 import time
-
+from metrics import (
+    REQUEST_COUNT,
+    REQUEST_LATENCY,
+    EMBEDDING_CACHE_HITS,
+    EMBEDDING_CACHE_MISSES,
+    RECOMMENDATION_CACHE_HITS,
+    RECOMMENDATION_CACHE_MISSES,
+    FAISS_SEARCHES
+)
 movies = pd.read_csv("movies.csv")
 
 history = pd.read_csv("user_history.csv")
@@ -38,6 +46,16 @@ movie_to_idx = {
         movies["movieId"]
     )
 }
+idx_to_movie = {
+    idx: movie_id
+    for movie_id, idx
+    in movie_to_idx.items()
+}
+movie_titles = (
+    movies
+    .set_index("movieId")["title"]
+    .to_dict()
+)
 def get_cached_embedding(user_id):
 
     data = redis_client.get(
@@ -45,9 +63,19 @@ def get_cached_embedding(user_id):
     )
 
     if data is None:
+        EMBEDDING_CACHE_MISSES.inc()
+        logger.info(
+            f"EMBEDDING_CACHE_MISS user={user_id}"
+        )
+
         return None
+    EMBEDDING_CACHE_HITS.inc()
+    logger.info(
+        f"EMBEDDING_CACHE_HIT user={user_id}"
+    )
 
     return pickle.loads(data)
+
 def cache_embedding(
     user_id,
     embedding
@@ -64,12 +92,19 @@ def cache_embedding(
 def get_cached_recommendations(
     user_id
 ):
+    start_time = time.perf_counter()
 
     data = redis_client.get(
         f"recommendations:user:{user_id}"
     )
+    
+    RECOMMENDATION_CACHE_HITS.inc()
+    latency = time.perf_counter() - start_time
+
+    REQUEST_LATENCY.observe(latency)
 
     if data is None:
+        RECOMMENDATION_CACHE_MISSES.inc()
         return None
 
     return pickle.loads(data)
@@ -84,6 +119,7 @@ def cache_recommendations(
             recommendations
         )
     )
+    
 
 def build_user_embedding(
     user_id
@@ -141,114 +177,127 @@ def recommend_user(
     user_id,
     top_k=10
 ):
-    start = time.time()
-    recommendations = (
+
+    try:
+        start_time = time.perf_counter()
+
+        REQUEST_COUNT.inc()
+
+        logger.info(
+            f"Recommendations requested for user: {user_id}"
+        )
+
+        # =====================
+        # Recommendation Cache
+        # =====================
+
+        cached_recs = (
             get_cached_recommendations(
                 user_id
             )
         )
-    
 
-    if recommendations is not None:
+        if cached_recs is not None:
 
-        logger.info(f"REC_CACHE_HIT user={user_id}")
+            logger.info(
+                f"Returning recommendation cache for user={user_id}"
+            )
 
-        return recommendations
+            return cached_recs
 
-    logger.info(f"REC_CACHE_MISS user={user_id}")
-    
-
-    user_embedding = (
-        get_cached_embedding(
-            user_id
-        )
-    )
-
-    if user_embedding is None:
-
-        print(
-            f"EMBEDDING MISS {user_id}"
-        )
+        # =====================
+        # Embedding Cache
+        # =====================
 
         user_embedding = (
-            build_user_embedding(
+            get_cached_embedding(
                 user_id
             )
         )
 
-        cache_embedding(
-            user_id,
-            user_embedding
-        )
+        if user_embedding is None:
 
-    else:
-
-        print(
-            f"EMBEDDING HIT {user_id}"
-        )
-    
-    scores, ids = index.search(
-        user_embedding,
-        top_k * 3
-    )
-
-    watched_movies = set(
-
-        history[
-            history["userId"]
-            == user_id
-        ]["movieId"]
-
-    )
-
-    recommendations = []
-
-    for movie_id in ids[0]:
-
-        if movie_id == -1:
-            continue
-
-        if movie_id in watched_movies:
-            continue
-
-        movie_row = movies[
-            movies["movieId"]
-            == movie_id
-        ]
-
-        if len(movie_row) == 0:
-            continue
-
-        recommendations.append(
-            {
-                "movieId":
-                int(movie_id),
-
-                "title":
-                movie_row.iloc[0]["title"],
-
-                "genres":
-                movie_row.iloc[0]["genres"]
-            }
-        )
-
-        if (
-            len(
-                recommendations
+            logger.info(
+                f"Building embedding user={user_id}"
             )
-            >= top_k
-        ):
-            break
 
-    latency = (
-    time.time() - start
-) * 1000
-    
-    logger.info(
-    f"LATENCY_MS={latency:.2f}"
-)
+            user_embedding = (
+                build_user_embedding(
+                    user_id
+                )
+            )
 
-    return recommendations
+            if user_embedding is None:
+
+                logger.error(
+                    f"User not found: {user_id}"
+                )
+
+                return {
+                    "error":
+                    "User not found"
+                }
+
+            cache_embedding(
+                user_id,
+                user_embedding
+            )
+
+        # =====================
+        # FAISS Search
+        # =====================
+        FAISS_SEARCHES.inc()
+        scores, indices = (
+            index.search(
+                user_embedding,
+                top_k
+            )
+        )
+
+        recommendations = []
+
+        for idx in indices[0]:
+
+            movie_id = idx_to_movie[idx]
+            title = movie_titles[movie_id]
+
+            recommendations.append(
+        {
+            "movieId": int(movie_id),
+            "title": movie_titles[movie_id]
+        }
+    )
+            
+
+        # =====================
+        # Store Recommendation Cache
+        # =====================
+
+        cache_recommendations(
+            user_id,
+            recommendations
+        )
+        start_time = time.perf_counter()
+        latency = time.perf_counter() - start_time
+
+        REQUEST_LATENCY.observe(latency)
+
+        logger.info(
+            f"user_id={user_id}, latency={latency:.4f}s"
+        )
+
+        return recommendations
+
+    except Exception as e:
+
+        logger.error(
+            f"user_id={user_id}, error={e}"
+        )
+
+        return {
+            "error":
+            str(e)
+        }
 
 def record_watch_event(
     user_id,
