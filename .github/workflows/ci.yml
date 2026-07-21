@@ -4,17 +4,27 @@ on:
   push:
     branches:
       - main
-      - master
 
   pull_request:
     branches:
       - main
-      - master
 
 jobs:
   test:
 
     runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
 
@@ -31,11 +41,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Verify Redis
+        run: |
+          redis-cli ping
+
       - name: Run Tests
         run: |
           python -m pytest -v
 
-      - name: Run Coverage
+      - name: Generate Coverage
         run: |
           python -m pytest --cov=. --cov-report=term-missing
 
