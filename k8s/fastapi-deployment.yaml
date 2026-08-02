@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: movie-recommender
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: movie-recommender
+
+  template:
+    metadata:
+      labels:
+        app: movie-recommender
+
+    spec:
+      containers:
+      - name: movie-recommender
+        image: movie-recommender:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 8000
+
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: movie-config
+              key: REDIS_HOST
+
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: movie-config
+              key: REDIS_PORT
+
+        - name: EMBEDDING_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: movie-config
+              key: EMBEDDING_TTL
+
+        - name: RECOMMENDATION_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: movie-config
+              key: RECOMMENDATION_TTL
+
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10

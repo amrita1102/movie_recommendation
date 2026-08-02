@@ -8,7 +8,7 @@ import redis_client
 from health import router as health_router
 from metrics_router import router as metrics_router
 from fastapi import HTTPException
-
+from health import router as health_router
 
 logging.basicConfig(filename="app.log",level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -16,7 +16,6 @@ logging.basicConfig(filename="app.log",level=logging.INFO,
 index = faiss.read_index(
     "movie_index.faiss"
 )
-from health import router as health_router
 
 app = FastAPI()
 

@@ -5,29 +5,21 @@ import faiss
 # Load data
 movies = pd.read_csv("ml-latest-small/ml-latest-small/movies.csv")
 
-embeddings = np.load(
-    "movie_embeddings.npy"
-).astype("float32")
+embeddings = np.load("movie_embeddings.npy").astype("float32")
 
 # Normalize
 faiss.normalize_L2(embeddings)
 
 # Movie IDs
-movie_ids = movies[
-    "movieId"
-].values.astype(np.int64)
+movie_ids = movies["movieId"].values.astype(np.int64)
 
 dimension = embeddings.shape[1]
 
 # Base index
-base_index = faiss.IndexFlatIP(
-    dimension
-)
+base_index = faiss.IndexFlatIP(dimension)
 
 # Wrap with IDMap
-index = faiss.IndexIDMap(
-    base_index
-)
+index = faiss.IndexIDMap(base_index)
 
 # Add vectors with explicit IDs
 index.add_with_ids(

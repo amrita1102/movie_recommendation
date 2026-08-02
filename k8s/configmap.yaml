@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+  name: movie-config
+
+data:
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  EMBEDDING_TTL: "600"
+  RECOMMENDATION_TTL: "90"
