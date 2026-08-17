@@ -52,6 +52,23 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
 
-volumes:
 
+  mysql:
+    image: mysql:8.4
+    container_name: movie-mysql
+
+    environment:
+      MYSQL_ROOT_PASSWORD: sqlroot
+      MYSQL_DATABASE: movie_db
+      MYSQL_USER: movie_user
+      MYSQL_PASSWORD: movie_password
+
+    ports:
+      - "3307:3307"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
   grafana-data:
+  mysql_data:
