@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from recommend import recommend_user, record_watch_event
 import logging
 import time
-import faiss
+# import faiss
 from pydantic import BaseModel
 import redis_client
 from health import router as health_router
@@ -13,9 +13,9 @@ from health import router as health_router
 logging.basicConfig(filename="app.log",level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s")
 
-index = faiss.read_index(
-    "movie_index.faiss"
-)
+# index = faiss.read_index(
+#     "movie_index.faiss"
+# )
 
 app = FastAPI()
 

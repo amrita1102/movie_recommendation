@@ -16,7 +16,9 @@ from metrics import (
     RECOMMENDATION_CACHE_MISSES,
     FAISS_SEARCHES
 )
-movies = pd.read_csv("movies.csv")
+from datastore import data_store
+movies = data_store.movies
+# movies = pd.read_csv("movies.csv")
 
 history = pd.read_csv("user_history.csv")
 
@@ -27,35 +29,37 @@ history["timestamp"] = pd.to_datetime(
     history["timestamp"]
 )
 
-embeddings = np.load(
-    "movie_embeddings.npy"
-).astype("float32")
-
+# embeddings = np.load(
+#     "movie_embeddings.npy"
+# ).astype("float32")
+embeddings = data_store.embeddings
 faiss.normalize_L2(
     embeddings
 )
-
-index = faiss.read_index(
-    "movie_index.faiss"
-)
-
-movie_to_idx = {
-    movie_id: idx
-    for idx, movie_id
-    in enumerate(
-        movies["movieId"]
-    )
-}
-idx_to_movie = {
-    idx: movie_id
-    for movie_id, idx
-    in movie_to_idx.items()
-}
-movie_titles = (
-    movies
-    .set_index("movieId")["title"]
-    .to_dict()
-)
+index = data_store.index
+# index = faiss.read_index(
+#     "movie_index.faiss"
+# )
+movie_to_idx = data_store.movie_to_idx
+idx_to_movie = data_store.idx_to_movie
+movie_titles = data_store.movie_titles
+# movie_to_idx = {
+#     movie_id: idx
+#     for idx, movie_id
+#     in enumerate(
+#         movies["movieId"]
+#     )
+# }
+# idx_to_movie = {
+#     idx: movie_id
+#     for movie_id, idx
+#     in movie_to_idx.items()
+# }
+# movie_titles = (
+#     movies
+#     .set_index("movieId")["title"]
+#     .to_dict()
+# )
 def get_cached_embedding(user_id):
 
     data = redis_client.get(
@@ -117,7 +121,7 @@ def cache_recommendations(
         f"recommendations:user:{user_id}",
         pickle.dumps(
             recommendations
-        )
+        ), ex = RECOMMENDATION_TTL
     )
     
 
@@ -246,27 +250,61 @@ def recommend_user(
         # =====================
         # FAISS Search
         # =====================
-        FAISS_SEARCHES.inc()
-        scores, indices = (
-            index.search(
-                user_embedding,
-                top_k
-            )
+    #     FAISS_SEARCHES.inc()
+    #     scores, indices = (
+    #         index.search(
+    #             user_embedding,
+    #             top_k
+    #         )
+    #     )
+
+    #     recommendations = []
+
+    #     for idx in indices[0]:
+
+    #         movie_id = idx_to_movie[idx]
+    #         title = movie_titles[movie_id]
+
+    #         recommendations.append(
+    #     {
+    #         "movieId": int(movie_id),
+    #         "title": movie_titles[movie_id]
+    #     }
+    # )
+        # =====================
+        # Candidate Retrieval
+        # =====================
+
+
+        candidates = retrieve_candidates(
+            user_embedding,
+            candidate_k=max(top_k * 10, 100)
         )
 
-        recommendations = []
+        logger.info(
+            f"Retrieved {len(candidates)} candidates "
+            f"for user={user_id}"
+        )
 
-        for idx in indices[0]:
+        # =====================
+        # Candidate Filtering
+        # =====================
 
-            movie_id = idx_to_movie[idx]
-            title = movie_titles[movie_id]
+        watched_movies = get_watched_movies(
+            user_id
+        )
 
-            recommendations.append(
-        {
-            "movieId": int(movie_id),
-            "title": movie_titles[movie_id]
-        }
-    )
+        recommendations = filter_candidates(
+            candidates,
+            watched_movies,
+            top_k=top_k
+        )
+
+        logger.info(
+            f"After filtering: "
+            f"{len(recommendations)} recommendations "
+            f"for user={user_id}"
+        )
             
 
         # =====================
@@ -339,149 +377,79 @@ def record_watch_event(
     print(
         f"Cache invalidated for user {user_id}"
     )
+def retrieve_candidates(user_embedding, candidate_k=100):
+    """
+    Retrieve a larger candidate pool from FAISS.
 
-# without cache
-# def recommend_user(user_id,top_k=10):
+    FAISS returns the nearest candidate_k movies.
+    Filtering happens separately.
+    """
 
-#     user_embedding = (
-#         build_user_embedding(
-#             user_id
-#         )
-#     )
+    FAISS_SEARCHES.inc()
 
-#     if user_embedding is None:
-
-#         return {
-#             "error":
-#             "user not found"
-#         }
-
-#     scores, ids = index.search(
-#         user_embedding,
-#         top_k * 3
-#     )
-
-#     watched_movies = set(
-
-#         history[
-#             history["userId"]
-#             == user_id
-#         ]["movieId"]
-
-#     )
-
-#     recommendations = []
-
-#     for movie_id in ids[0]:
-
-#         if movie_id == -1:
-#             continue
-
-#         if movie_id in watched_movies:
-#             continue
-
-#         movie_row = movies[
-#             movies["movieId"]
-#             == movie_id
-#         ]
-
-#         if len(movie_row) == 0:
-#             continue
-
-#         recommendations.append(
-#             {
-#                 "movieId":
-#                 int(movie_id),
-
-#                 "title":
-#                 movie_row.iloc[0]["title"],
-
-#                 "genres":
-#                 movie_row.iloc[0]["genres"]
-#             }
-#         )
-
-#         if (
-#             len(
-#                 recommendations
-#             )
-#             >= top_k
-#         ):
-#             break
-
-#     return recommendations
-
-if __name__ == "__main__":
-
-    recs = recommend_user(
-        101
+    scores, indices = data_store.index.search(
+        user_embedding,
+        candidate_k
     )
 
-    for movie in recs:
-        print(movie)
+    candidates = []
 
-# -------------------------
-# MovieId -> embedding row
-# -------------------------
+    for score, idx in zip(scores[0], indices[0]):
 
-movie_to_idx = {
-    movie_id: idx
-    for idx, movie_id
-    in enumerate(
-        movies["movieId"]
+        # FAISS can return -1 when there aren't enough results
+        if idx == -1:
+            continue
+
+        if idx not in data_store.idx_to_movie:
+            continue
+
+        movie_id = data_store.idx_to_movie[idx]
+
+        candidates.append({
+            "movieId": int(movie_id),
+            "title": data_store.movie_titles[movie_id],
+            "score": float(score)
+        })
+
+    return candidates
+def get_watched_movies(user_id):
+    """
+    Return movie IDs already watched by the user.
+    """
+
+    user_history = history[
+        history["userId"] == user_id
+    ]
+
+    return set(
+        user_history["movieId"].astype(int)
     )
-}
+def filter_candidates(
+    candidates,
+    watched_movies,
+    top_k=10
+):
+    """
+    Remove already-watched movies and return
+    the highest-scoring remaining candidates.
+    """
 
-# -------------------------
-# Movie Recommendation
-# -------------------------
+    recommendations = []
 
-movies = pd.read_csv("ml-latest-small/ml-latest-small/movies.csv")
+    for candidate in candidates:
 
-embeddings = np.load("movie_embeddings.npy")
-embeddings = embeddings.astype("float32")
+        movie_id = candidate["movieId"]
 
-dimension = embeddings.shape[1]
+        if movie_id in watched_movies:
+            continue
 
-index = faiss.IndexFlatIP(dimension)
-faiss.normalize_L2(
-    embeddings
-)
-index.add(
-    embeddings
-)
-faiss.write_index(
-    index,
-    "movie_index.faiss"
-)
+        recommendations.append({
+            "movieId": movie_id,
+            "title": candidate["title"]
+        })
 
-def get_similar_movies(movie_id,top_k=10):
+        if len(recommendations) >= top_k:
+            break
 
-    idx = movies[movies["movieId"] == movie_id].index[0]
-
-    query = embeddings[idx]
-
-    query = np.expand_dims(query, axis=0)
-
-    scores, indices = index.search(query,top_k + 1)
-
-    return (movies.iloc[indices[0][1:]]["title"].tolist())
-
-# def get_similar_movies(movie_id):
-#     query_embedding = embeddings[movie_id]
-
-#     similarities = cosine_similarity(
-#         [query_embedding],
-#         embeddings
-#     )[0]
-
-#     top_idx = similarities.argsort()[-11:-1][::-1]
-
-#     return (movies.iloc[top_idx]["title"].tolist())
-
-# Example usage:
-# movie_id = 1  # The movie ID for which you want recommendations
-# print(f"Recommendations for movie {movie_id}:{movies.iloc[movie_id]['title']}") 
-# similar_movies = get_similar_movies(movie_id)
-# print(similar_movies)  
+    return recommendations
 
