@@ -9,6 +9,8 @@ from health import router as health_router
 from metrics_router import router as metrics_router
 from fastapi import HTTPException
 from health import router as health_router
+from history_repository import history_repository
+from movie_repository import movie_repository
 
 logging.basicConfig(filename="app.log",level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -47,9 +49,24 @@ def redis_health():
     }
 
 @app.post("/watch")
-def watch_movie(
-    event: WatchEvent
-):
+@app.post("/watch")
+def watch_movie(event: WatchEvent):
+
+    if not history_repository.user_exists(
+        event.user_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    if not movie_repository.exists(
+        event.movie_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Movie not found"
+        )
 
     record_watch_event(
         event.user_id,
@@ -57,8 +74,7 @@ def watch_movie(
     )
 
     return {
-        "status":
-        "success"
+        "status": "success"
     }
 
 @app.get("/recommend/{movie_id}")

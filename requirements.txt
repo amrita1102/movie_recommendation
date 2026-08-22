@@ -10,3 +10,7 @@ prometheus-client
 pytest
 httpx
 pytest-cov
+sqlalchemy
+pymysql
+streamlit
+requests

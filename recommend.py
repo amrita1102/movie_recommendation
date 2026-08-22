@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+# import pandas as pd
 # from sklearn.metrics.pairwise import cosine_similarity
 import faiss
 import pickle
@@ -7,6 +7,8 @@ from redis_client import redis_client
 from datetime import datetime
 from logger import logger
 import time
+from history_repository import history_repository
+from watch_repository import watch_repository
 from metrics import (
     REQUEST_COUNT,
     REQUEST_LATENCY,
@@ -20,14 +22,14 @@ from datastore import data_store
 movies = data_store.movies
 # movies = pd.read_csv("movies.csv")
 
-history = pd.read_csv("user_history.csv")
-
 EMBEDDING_TTL = 600
 RECOMMENDATION_TTL = 90
 
-history["timestamp"] = pd.to_datetime(
-    history["timestamp"]
-)
+# history = pd.read_csv("user_history.csv")
+
+# history["timestamp"] = pd.to_datetime(
+#     history["timestamp"]
+# )
 
 # embeddings = np.load(
 #     "movie_embeddings.npy"
@@ -125,46 +127,41 @@ def cache_recommendations(
     )
     
 
-def build_user_embedding(
-    user_id
-):
+def build_user_embedding(user_id):
 
-    user_data = history[
-        history["userId"] == user_id
-    ].copy()
+    user_data = (
+        history_repository.get_user_history(
+            user_id
+        )
+    )
 
-    if len(user_data) == 0:
+    if not user_data:
         return None
 
     # newest first
-    user_data = user_data.sort_values(
-        by="timestamp",
-        ascending=False
-    )
-
     embeddings_list = []
 
     weights = []
 
-    # weight:
-    # newest movie gets highest weight
-
     n = len(user_data)
 
-    for rank, row in enumerate(user_data.itertuples()):
+    for rank, row in enumerate(user_data):
 
-        movie_id = row.movieId
+        movie_id = row.movie_id
 
         if movie_id not in movie_to_idx:
             continue
 
         idx = movie_to_idx[movie_id]
 
-        embeddings_list.append(embeddings[idx])
+        embeddings_list.append(
+            embeddings[idx]
+        )
 
         weight = (n - rank) / n
 
         weights.append(weight)
+
 
     if len(embeddings_list) == 0:
         return None
@@ -338,45 +335,33 @@ def recommend_user(
         }
 
 def record_watch_event(
-    user_id,
-    movie_id
+    user_id: int,
+    movie_id: int
 ):
-
-    global history
-
-    new_row = pd.DataFrame(
-        [
-            {
-                "userId": user_id,
-                "movieId": movie_id,
-                "timestamp":
-                datetime.now()
-            }
-        ]
+    watch_repository.add_watch_event(
+        user_id=user_id,
+        movie_id=movie_id
     )
+
+    # User embedding is now stale
+    redis_client.delete(
+        f"user:{user_id}"
+    )
+
+    # Recommendations based on the old embedding/history
+    # are also stale
+    redis_client.delete(
+        f"recommendations:user:{user_id}"
+    )
+
     logger.info(
-    f"WATCH_EVENT user={user_id} movie={movie_id}"
-)
-    history = pd.concat(
-        [
-            history,
-            new_row
-        ],
-        ignore_index=True
+        f"WATCH_EVENT user={user_id} movie={movie_id}"
     )
 
-    history.to_csv(
-        "user_history.csv",
-        index=False
-    )
+    return {
+        "status": "success"
+    }
 
-    redis_client.delete(f"user:{user_id}")
-
-    redis_client.delete(f"recommendations:user:{user_id}")
-
-    print(
-        f"Cache invalidated for user {user_id}"
-    )
 def retrieve_candidates(user_embedding, candidate_k=100):
     """
     Retrieve a larger candidate pool from FAISS.
@@ -417,13 +402,18 @@ def get_watched_movies(user_id):
     Return movie IDs already watched by the user.
     """
 
-    user_history = history[
-        history["userId"] == user_id
-    ]
+    # user_history = history[
+    #     history["userId"] == user_id
+    # ]
 
-    return set(
-        user_history["movieId"].astype(int)
-    )
+    # return set(
+    #     user_history["movieId"].astype(int)
+    # )
+    watched_movies = (
+    history_repository
+    .get_watched_movie_ids(user_id)
+)
+    return watched_movies
 def filter_candidates(
     candidates,
     watched_movies,

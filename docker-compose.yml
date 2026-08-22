@@ -18,9 +18,15 @@ services:
 
     depends_on:
       - redis
+      - mysql
 
     environment:
       REDIS_HOST: redis
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: movie_db
+      MYSQL_USER: movie_user
+      MYSQL_PASSWORD: movie_password
 
   prometheus:
 
@@ -64,7 +70,7 @@ services:
       MYSQL_PASSWORD: movie_password
 
     ports:
-      - "3307:3307"
+      - "3307:3306"
 
     volumes:
       - mysql_data:/var/lib/mysql
