@@ -1,16 +1,31 @@
-version: "3.9"
-
 services:
 
   redis:
-
     image: redis
 
     ports:
       - "6379:6379"
 
-  fastapi:
 
+  mysql:
+    image: mysql:8.4
+
+    container_name: movie-mysql
+
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: movie_db
+      MYSQL_USER: movie_user
+      MYSQL_PASSWORD: movie_password
+
+    ports:
+      - "3307:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+
+  fastapi:
     build: .
 
     ports:
@@ -28,8 +43,26 @@ services:
       MYSQL_USER: movie_user
       MYSQL_PASSWORD: movie_password
 
-  prometheus:
 
+  streamlit:
+    build: .
+
+    command: >
+      streamlit run streamlit_app.py
+      --server.address=0.0.0.0
+      --server.port=8501
+
+    ports:
+      - "8501:8501"
+
+    depends_on:
+      - fastapi
+
+    environment:
+      API_URL: http://fastapi:8000
+
+
+  prometheus:
     image: prom/prometheus
 
     container_name: prometheus
@@ -43,8 +76,8 @@ services:
     depends_on:
       - fastapi
 
-  grafana:
 
+  grafana:
     image: grafana/grafana
 
     container_name: grafana
@@ -58,22 +91,6 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
 
-
-  mysql:
-    image: mysql:8.4
-    container_name: movie-mysql
-
-    environment:
-      MYSQL_ROOT_PASSWORD: sqlroot
-      MYSQL_DATABASE: movie_db
-      MYSQL_USER: movie_user
-      MYSQL_PASSWORD: movie_password
-
-    ports:
-      - "3307:3306"
-
-    volumes:
-      - mysql_data:/var/lib/mysql
 
 volumes:
   grafana-data:

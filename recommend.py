@@ -104,7 +104,6 @@ def get_cached_recommendations(
         f"recommendations:user:{user_id}"
     )
     
-    RECOMMENDATION_CACHE_HITS.inc()
     latency = time.perf_counter() - start_time
 
     REQUEST_LATENCY.observe(latency)
@@ -112,7 +111,7 @@ def get_cached_recommendations(
     if data is None:
         RECOMMENDATION_CACHE_MISSES.inc()
         return None
-
+    RECOMMENDATION_CACHE_HITS.inc()
     return pickle.loads(data)
 def cache_recommendations(
     user_id,

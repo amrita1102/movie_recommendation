@@ -1,8 +1,11 @@
 import requests
 import streamlit as st
+import os
 
-
-API_URL = "http://localhost:8000"
+API_URL = os.getenv(
+    "API_URL",
+    "http://localhost:8000"
+)
 
 
 st.set_page_config(
@@ -19,6 +22,38 @@ st.title("🎬 Movie Recommender")
 
 if "recommendations" not in st.session_state:
     st.session_state.recommendations = None
+
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
+
+
+# --------------------------------
+# Helper: get recommendations
+# --------------------------------
+
+def load_recommendations(user_id):
+
+    response = requests.get(
+        f"{API_URL}/recommend/user/{user_id}"
+    )
+
+    if response.status_code == 200:
+
+        data = response.json()
+
+        st.session_state.recommendations = (
+            data.get("recommendations", [])
+        )
+
+        st.session_state.current_user = user_id
+
+        return True
+
+    st.error(
+        f"Recommendation error: {response.text}"
+    )
+
+    return False
 
 
 # --------------------------------
@@ -39,41 +74,26 @@ user_id = st.number_input(
 
 if st.button("Get Recommendations"):
 
-    response = requests.get(
-        f"{API_URL}/recommend/user/{user_id}"
+    load_recommendations(
+        int(user_id)
     )
-
-    if response.status_code == 200:
-
-        data = response.json()
-
-        st.session_state.recommendations = (
-            data.get(
-                "recommendations",
-                []
-            )
-        )
-
-    else:
-
-        st.error(
-            f"Error: {response.text}"
-        )
 
 
 # --------------------------------
 # Recommendations
 # --------------------------------
 
-if st.session_state.recommendations is not None:
+if (
+    st.session_state.recommendations is not None
+    and
+    st.session_state.current_user == int(user_id)
+):
 
     st.subheader("Recommended Movies")
 
     for movie in st.session_state.recommendations:
 
-        col1, col2 = st.columns(
-            [4, 1]
-        )
+        col1, col2 = st.columns([4, 1])
 
         with col1:
 
@@ -100,16 +120,18 @@ if st.session_state.recommendations is not None:
 
                 if watch_response.status_code == 200:
 
-                    # Remove the watched movie
-                    # immediately from the current UI
-                    st.session_state.recommendations = [
-                        m
-                        for m in st.session_state.recommendations
-                        if m["movieId"] != movie["movieId"]
-                    ]
-
                     st.success(
                         "Watch recorded!"
+                    )
+
+                    # --------------------------------
+                    # IMPORTANT:
+                    # Fetch completely fresh recommendations
+                    # after MySQL + Redis have been updated.
+                    # --------------------------------
+
+                    load_recommendations(
+                        int(user_id)
                     )
 
                     st.rerun()
