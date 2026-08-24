@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi import HTTPException
 from recommend import recommend_user, record_watch_event
 import logging
 import time
@@ -138,5 +139,38 @@ def get_recommendations(user_id: int):
             status_code=500,
             detail="Internal Server Error"
         )
-    
+
+@app.get("/users/{user_id}/history")
+def get_watch_history(user_id: int):
+
+    if not history_repository.user_exists(user_id):
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    history = (
+        history_repository
+        .get_user_history(user_id)
+    )
+
+    result = []
+
+    for event in history:
+
+        movie = movie_repository.get_movie(
+            event.movie_id
+        )
+
+        result.append({
+            "movieId": event.movie_id,
+            "title": movie.title if movie else "Unknown",
+            "watchedAt": event.watched_at.isoformat()
+        })
+
+    return {
+        "history": result
+    }
+
+ 
 # python -m pytest --cov=. --cov-report=term-missing

@@ -7,6 +7,7 @@ from models import Movie
 class MovieRepository:
 
     def exists(self, movie_id: int) -> bool:
+
         db = SessionLocal()
 
         try:
@@ -20,5 +21,20 @@ class MovieRepository:
         finally:
             db.close()
 
+    def get_movie(self, movie_id: int):
 
-movie_repository = MovieRepository()
+        db = SessionLocal()
+
+        try:
+            stmt = (
+                select(Movie)
+                .where(Movie.id == movie_id)
+            )
+
+            return db.scalar(stmt)
+
+        finally:
+            db.close()
+
+
+movie_repository = MovieRepository()   
